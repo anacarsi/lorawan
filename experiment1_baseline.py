@@ -1,19 +1,19 @@
 """
-LoRaWAN Security Experiments - SIMULATION VERSION
-Uses realistic physical layer simulation of LoRa radio behavior.
+Experiment 1: Channel Baseline
+
+Tests basic LoRa communication without attacks.
+Measures channel quality across different spreading factors and data rates.
 """
 
 import matplotlib
-matplotlib.use('TkAgg')  # Use TkAgg backend for interactive plots
 import matplotlib.pyplot as plt
-
 import time
 import random
-from typing import Dict, List
+from typing import Dict
 
 from lora_simulator import SimulatedLoRaNode, LoRaChannel
 
-# ANSI Color codes for logging
+# ANSI Colors
 class Colors:
     RESET = '\033[0m'
     RED = '\033[91m'
@@ -37,54 +37,8 @@ def log_error(msg):
 def log_debug(msg):
     print(f"{Colors.MAGENTA}[DEBUG]{Colors.RESET} {msg}")
 
-
-# ============================================================================
-# SIMULATION SETUP
-# ============================================================================
-
-log_info("Initializing LoRa Physical Layer Simulator")
-log_info("This simulates realistic radio propagation, collisions, and interference")
-
-# Create shared wireless channel
-channel = LoRaChannel()
-
-# Node positions (in meters)
-# Alice is in lecture hall (0, 0)
-# Bob and Mallory are in office building 100m away
-POSITIONS = {
-    'alice': (0, 0),
-    'bob': (100, 0),
-    'mallory': (100, 5)
-}
-
-# Create simulated nodes
-alice = SimulatedLoRaNode('alice', POSITIONS['alice'], channel)
-bob = SimulatedLoRaNode('bob', POSITIONS['bob'], channel)
-mallory = SimulatedLoRaNode('mallory', POSITIONS['mallory'], channel)
-
-all_nodes = [alice, bob, mallory]
-node_names = ["alice", "bob", "mallory"]
-
-log_info(f"Created 3 nodes: {', '.join(node_names)}")
-log_info(f"Distance Alice->Bob: 100m, Distance Bob->Mallory: 5m")
-
-for node in all_nodes:
-    node.standby()
-
-# Default channel configuration
-default_channel = {
-    'frequency': 868100000,  # Hz
-    'bandwidth': 125,  # kHz
-    'spreadingfactor': 7,
-    'syncword': 18,
-    'codingrate': 5,
-    'invertiqtx': True,
-    'invertiqrx': False,
-    'explicitheader': True,
-}
-
 # EU868 Data Rates
-datarates = {
+DATARATES = {
     "DR0": {"spreadingfactor": 12, "bandwidth": 125},
     "DR1": {"spreadingfactor": 11, "bandwidth": 125},
     "DR2": {"spreadingfactor": 10, "bandwidth": 125},
@@ -93,26 +47,35 @@ datarates = {
     "DR5": {"spreadingfactor":  7, "bandwidth": 125},
 }
 
+DEFAULT_CHANNEL = {
+    'frequency': 868100000,
+    'bandwidth': 125,
+    'codingrate': 5,
+    'invertiqtx': True,
+    'invertiqrx': False,
+    'explicitheader': True,
+}
 
-# ============================================================================
-# EXPERIMENT 1.1: Single Message
-# ============================================================================
 
-def first_experiment(spreading_factor: int = 12, payload_str: str = 'Secure Mobile Systems') -> dict:
+def single_message_test(spreading_factor: int = 12, payload_str: str = 'Secure Mobile Systems') -> dict:
     """
     Experiment 1.1: Single Message Test
-    Tests basic LoRa communication with realistic physics simulation.
+
+    Tests one message at one spreading factor.
+    Shows RSSI, SNR, and reception success.
     """
     log_info(f"=== Experiment 1.1: Single Message (SF{spreading_factor}) ===")
 
-    channel_config = {**default_channel, 'spreadingfactor': spreading_factor}
+    # Setup
+    channel = LoRaChannel()
+    alice = SimulatedLoRaNode('alice', (0, 0), channel)
+    bob = SimulatedLoRaNode('bob', (100, 0), channel)
 
-    # Configure nodes
-    for node in all_nodes:
-        node.standby()
-        node.set_lora_channel(**channel_config)
+    channel_config = {**DEFAULT_CHANNEL, 'spreadingfactor': spreading_factor}
+    alice.set_lora_channel(**channel_config)
+    bob.set_lora_channel(**channel_config)
 
-    # Bob starts receiving
+    # Bob listens
     bob.receive()
     log_info("Bob is now receiving...")
     time.sleep(0.1)
@@ -127,17 +90,15 @@ def first_experiment(spreading_factor: int = 12, payload_str: str = 'Secure Mobi
 
     log_info(f"Frame transmitted (time-on-air: {tx_duration:.3f}s)")
 
-    # Wait for Bob to process
+    # Wait for reception
     time.sleep(0.5)
 
-    # Check what Bob received
+    # Check result
     recv_frame = bob.fetch_frame()
     bob.standby()
-
-    # Cleanup
     channel.cleanup_old_frames(time.time())
 
-    # Process results
+    # Process
     result = {
         'success': False,
         'transmitted': payload_str,
@@ -167,29 +128,33 @@ def first_experiment(spreading_factor: int = 12, payload_str: str = 'Secure Mobi
             log_error("Message corrupted")
     else:
         log_error("No frame received by Bob")
+        log_warn("Try higher SF (lower DR) for longer range")
 
     return result
 
 
-# ============================================================================
-# EXPERIMENT 1.2: Channel Quality
-# ============================================================================
-
-def channel_quality_experiment(num_rounds: int = 3, frame_len: int = 12,
-                               frequency: int = 869525000, duty_cycle: float = 0.80) -> dict:
+def channel_quality_test(num_rounds: int = 3, frame_len: int = 12,
+                         frequency: int = 869525000, duty_cycle: float = 0.80) -> dict:
     """
-    Experiment 1.2: Multiple Channels
-    Test all data rates with realistic physics.
+    Experiment 1.2: Channel Quality Test
+
+    Tests all data rates (DR0-DR5) with multiple rounds.
+    Shows success/corruption/loss rates with visualization.
     """
     log_info("=== Experiment 1.2: Channel Quality by Data Rate ===")
-    log_info(f"Testing {len(datarates)} data rates with {num_rounds} rounds each")
+    log_info(f"Testing {len(DATARATES)} data rates with {num_rounds} rounds each")
 
-    dr_labels = sorted(datarates.keys())
+    # Setup
+    channel = LoRaChannel()
+    alice = SimulatedLoRaNode('alice', (0, 0), channel)
+    bob = SimulatedLoRaNode('bob', (100, 0), channel)
+
+    dr_labels = sorted(DATARATES.keys())
     count_recv = [0 for _ in dr_labels]
     count_lost = [0 for _ in dr_labels]
     count_corrupt = [0 for _ in dr_labels]
 
-    # Setup plot
+    # Create plot
     fig, ax = plt.subplots(figsize=(10, 6))
     bar_width = 0.6
 
@@ -224,16 +189,16 @@ def channel_quality_experiment(num_rounds: int = 3, frame_len: int = 12,
         fig.canvas.flush_events()
 
     # Run experiment
-    channel_base = {**default_channel, "frequency": frequency}
+    channel_base = {**DEFAULT_CHANNEL, "frequency": frequency}
 
     for round_num in range(num_rounds):
         log_info(f"Round {round_num + 1}/{num_rounds}")
 
         for drname, dridx in zip(dr_labels, range(len(dr_labels))):
-            sf = datarates[drname]['spreadingfactor']
+            sf = DATARATES[drname]['spreadingfactor']
             log_debug(f"  Testing {drname} (SF{sf})")
 
-            channel_config = {**channel_base, **datarates[drname]}
+            channel_config = {**channel_base, **DATARATES[drname]}
             alice.set_lora_channel(**channel_config)
             bob.set_lora_channel(**channel_config)
 
@@ -241,7 +206,7 @@ def channel_quality_experiment(num_rounds: int = 3, frame_len: int = 12,
             time.sleep(0.1)
 
             # Random payload
-            frm = [random.randrange(0, 256) for _ in range(frame_len)]
+            frm = [random.randint(0, 256) for _ in range(frame_len)]
 
             # Transmit
             txstart = time.time()
@@ -266,26 +231,24 @@ def channel_quality_experiment(num_rounds: int = 3, frame_len: int = 12,
                 count_lost[dridx] += 1
                 log_error(f"    {drname}: Lost")
 
-            # Update visualization
             update_chart()
 
-            # Respect duty cycle
+            # Duty cycle
             frm_duration = txend - txstart
             remaining = frm_duration / duty_cycle - frm_duration
             if remaining > 0:
                 time.sleep(remaining)
 
-            # Cleanup old frames
             channel.cleanup_old_frames(time.time())
 
-    # Final summary
+    # Results
     log_info("=== RESULTS ===")
     print(f"\n{'DR':<6} {'SF':<4} {'Received':<10} {'Corrupted':<12} {'Lost':<10} {'Success %':<10}")
     print("-" * 70)
 
     results = {}
     for drname, recv, corrupt, lost in zip(dr_labels, count_recv, count_corrupt, count_lost):
-        sf = datarates[drname]['spreadingfactor']
+        sf = DATARATES[drname]['spreadingfactor']
         total = num_rounds
         success_rate = (recv / total) * 100 if total > 0 else 0
 
@@ -300,55 +263,58 @@ def channel_quality_experiment(num_rounds: int = 3, frame_len: int = 12,
         print(f"{color}{drname:<6} {sf:<4} {recv:<10} {corrupt:<12} {lost:<10} {success_rate:>6.1f}%{Colors.RESET}")
 
     plt.ioff()
-    plt.show(block=False)
-    input("\nPress Enter to close plot and continue...")
+    input("\nPress Enter to close plot...")
     plt.close()
 
     return results
 
 
-# ============================================================================
-# MAIN MENU
-# ============================================================================
+def test_all_spreading_factors(payload_str: str = 'Secure Mobile Systems'):
+    """
+    Experiment 1.3: Test All Spreading Factors
+
+    Runs single message test for SF7 through SF12.
+    Shows how range improves with higher SF.
+    """
+    log_info("=== Testing All Spreading Factors (SF7-SF12) ===")
+
+    results = []
+    for sf in range(7, 13):
+        result = single_message_test(spreading_factor=sf, payload_str=payload_str)
+        results.append(result)
+        time.sleep(0.5)
+
+    # Summary
+    log_info("\n=== SUMMARY ===")
+    print(f"{'SF':<4} {'Status':<10} {'RSSI (dBm)':<12} {'SNR (dB)':<10} {'ToA (s)':<10}")
+    print("-" * 50)
+
+    for sf, result in zip(range(7, 13), results):
+        status = "SUCCESS" if result['success'] else "FAILED"
+        rssi = f"{result['rssi']}" if result['rssi'] is not None else "N/A"
+        snr = f"{result['snr']}" if result['snr'] is not None else "N/A"
+        toa = f"{result['time_on_air']:.3f}"
+
+        color = Colors.GREEN if result['success'] else Colors.RED
+        print(f"{color}{sf:<4} {status:<10} {rssi:<12} {snr:<10} {toa:<10}{Colors.RESET}")
+
+    return results
+
 
 if __name__ == "__main__":
-    print("\n" + "="*70)
-    log_info("LoRaWAN Security Experiments - REALISTIC SIMULATION")
-    log_info("Simulates: Path loss, fading, collisions, time-on-air, SNR")
-    print("="*70 + "\n")
+    # If run directly, offer menu
+    print("\nExperiment 1: Channel Baseline")
+    print("1. Single message")
+    print("2. Channel quality")
+    print("3. All spreading factors")
 
-    while True:
-        print("\nSelect experiment:")
-        print("  1. Single message (test one spreading factor)")
-        print("  2. Channel quality (all data rates DR0-DR5)")
-        print("  3. Test all spreading factors (SF7-SF12)")
-        print("  4. Exit")
+    choice = input("\nChoice: ").strip()
 
-        choice = input("\nChoice: ").strip()
-
-        if choice == "1":
-            sf_input = input("Enter spreading factor (7-12) [default: 12]: ").strip()
-            sf = int(sf_input) if sf_input else 12
-            if 7 <= sf <= 12:
-                first_experiment(spreading_factor=sf)
-            else:
-                log_error("SF must be between 7 and 12")
-
-        elif choice == "2":
-            rounds_input = input("Enter number of rounds per DR [default: 3]: ").strip()
-            rounds = int(rounds_input) if rounds_input else 3
-            channel_quality_experiment(num_rounds=rounds)
-
-        elif choice == "3":
-            # Test all SFs sequentially
-            log_info("=== Testing All Spreading Factors ===")
-            for sf in range(7, 13):
-                first_experiment(spreading_factor=sf, payload_str="Test SF" + str(sf))
-                time.sleep(0.5)
-
-        elif choice == "4":
-            log_info("Exiting...")
-            break
-
-        else:
-            log_error("Invalid choice")
+    if choice == "1":
+        single_message_test()
+    elif choice == "2":
+        channel_quality_test()
+    elif choice == "3":
+        test_all_spreading_factors()
+    else:
+        print("Invalid choice")
