@@ -321,7 +321,8 @@ if __name__ == "__main__":
         print("\nSelect experiment:")
         print("  1. Single message (test one spreading factor)")
         print("  2. Channel quality (all data rates DR0-DR5)")
-        print("  3. Exit")
+        print("  3. Test all spreading factors (SF7-SF12)")
+        print("  4. Exit")
 
         choice = input("\nChoice: ").strip()
 
@@ -339,6 +340,13 @@ if __name__ == "__main__":
             channel_quality_experiment(num_rounds=rounds)
 
         elif choice == "3":
+            # Test all SFs sequentially
+            log_info("=== Testing All Spreading Factors ===")
+            for sf in range(7, 13):
+                first_experiment(spreading_factor=sf, payload_str="Test SF" + str(sf))
+                time.sleep(0.5)
+
+        elif choice == "4":
             log_info("Exiting...")
             break
 
